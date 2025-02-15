@@ -16,8 +16,14 @@ const SECRET_ACCESS_KEY = core.getInput('aws_secret_access_key', {
 const BUCKET = core.getInput('aws_bucket', {
   required: true,
 });
+const REGION = core.getInput('aws_region', {
+  required: false,
+});
 const SOURCE_DIR = core.getInput('source_dir', {
-  required: true,
+  required: false,
+});
+const SOURCE_FILES = core.getInput('source_files', {
+  required: false,
 });
 const DESTINATION_DIR = core.getInput('destination_dir', {
   required: false,
@@ -35,11 +41,24 @@ if (ENDPOINT) {
   s3options.endpoint = ENDPOINT;
 }
 
+if (REGION) {
+  s3options.region = REGION;
+}
+
 const s3 = new S3(s3options);
 const destinationDir = DESTINATION_DIR === '/' ? shortid() : DESTINATION_DIR;
-const paths = klawSync(SOURCE_DIR, {
-  nodir: true,
-});
+const paths = SOURCE_DIR
+  ? klawSync(SOURCE_DIR, {
+      nodir: true,
+    })
+  : SOURCE_FILES
+    ? SOURCE_FILES.split('\n').map((f) => ({ path: f }))
+    : [];
+
+if (paths.length === 0) {
+  core.setFailed('No files to upload');
+  process.exit(1);
+}
 
 function upload(params) {
   return new Promise((resolve) => {
@@ -58,17 +77,23 @@ function run() {
     paths.map((p) => {
       const fileStream = fs.createReadStream(p.path);
       const bucketPath = slash(
-        path.join(destinationDir, slash(path.relative(sourceDir, p.path)))
+        path.join(
+          destinationDir,
+          slash(
+            SOURCE_DIR
+              ? path.relative(sourceDir, p.path)
+              : path.basename(p.path),
+          ),
+        ),
       );
       const params = {
         Bucket: BUCKET,
-        ACL: 'public-read',
         Body: fileStream,
         Key: bucketPath,
         ContentType: lookup(p.path) || 'text/plain',
       };
       return upload(params);
-    })
+    }),
   );
 }
 
