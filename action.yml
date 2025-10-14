@@ -22,7 +22,7 @@ inputs:
     description: "directory to upload"
   source_files:
     required: false
-    description: "files to upload"
+    description: "files to upload (supports glob patterns). Examples: `*.js`, `**/*.txt`, `dist/**`, `src/*.{js,ts}`"
   destination_dir:
     required: false
     default: /

@@ -76,11 +76,13 @@ The following settings must be passed as environment variables as shown in the e
 | `aws_region`            | (Optional) The region you want to upload to. [More info here.](https://docs.aws.amazon.com/general/latest/gr/rande.html)                  |
 | `aws_bucket`            | (Required) The name of the bucket you're upload to.                                                                                       |
 | `source_dir`            | (Optional) The local directory (or file) you wish to upload to S3.                                                                        |
-| `source_files`          | (Optional) The files list you wish to upload to S3. Ignored if `source_dir` is set                                                        |
+| `source_files`          | (Optional) The files list you wish to upload to S3. Supports glob patterns. Ignored if `source_dir` is set.                               |
 | `destination_dir`       | (Optional) The destination directory in S3<br />If this field is omitted a [shortid](https://github.com/dylang/shortid) will be generated |
 | `endpoint`              | (Optional) The endpoint URI to send requests to. [More info here.](https://docs.aws.amazon.com/AWSJavaScriptSDK/latest/AWS/S3.html)       |
 
 One of `source_dir` or `source_files` is required.
+
+> **Note:** Files listed in `source_files` are uploaded using their basenames (flat structure). Original directory paths are not retained.
 
 > To upload to the root directory, set `destination_dir: ''` in `action.yml`
 
