@@ -6,6 +6,7 @@ const shortid = require('shortid');
 const slash = require('slash').default;
 const klawSync = require('klaw-sync');
 const { lookup } = require('mime-types');
+const glob = require('glob');
 
 const AWS_KEY_ID = core.getInput('aws_key_id', {
   required: true,
@@ -47,17 +48,45 @@ if (REGION) {
 
 const s3 = new S3(s3options);
 const destinationDir = DESTINATION_DIR === '/' ? shortid() : DESTINATION_DIR;
+
 const paths = SOURCE_DIR
   ? klawSync(SOURCE_DIR, {
-      nodir: true,
-    })
+    nodir: true,
+  })
   : SOURCE_FILES
-    ? SOURCE_FILES.split('\n').map((f) => ({ path: f }))
+    ? expandSourceFiles(SOURCE_FILES)
     : [];
 
 if (paths.length === 0) {
   core.setFailed('No files to upload');
   process.exit(1);
+}
+
+function expandSourceFiles(sourceFiles) {
+  const patterns = sourceFiles.split('\n').map(p => p.trim()).filter(p => p !== '');
+  const fileSet = new Set();
+
+  for (const pattern of patterns) {
+    try {
+      const matches = glob.sync(pattern, { nodir: true, absolute: true });
+
+      if (matches.length === 0) {
+        core.warning(`Glob pattern "${pattern}" matched no files`);
+      } else {
+        matches.forEach(file => fileSet.add(file));
+      }
+    } catch (error) {
+      core.setFailed(`Invalid glob pattern "${pattern}": ${error.message}`);
+      process.exit(1);
+    }
+  }
+
+  if (fileSet.size === 0) {
+    core.setFailed('No files matched any of the provided glob patterns');
+    process.exit(1);
+  }
+
+  return Array.from(fileSet).map(file => ({ path: file }));
 }
 
 function upload(params) {
