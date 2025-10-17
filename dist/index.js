@@ -63868,8 +63868,8 @@ const destinationDir = DESTINATION_DIR === '/' ? shortid() : DESTINATION_DIR;
 
 const paths = SOURCE_DIR
   ? klawSync(SOURCE_DIR, {
-    nodir: true,
-  })
+      nodir: true,
+    })
   : SOURCE_FILES
     ? expandSourceFiles(SOURCE_FILES)
     : [];
@@ -63880,30 +63880,33 @@ if (paths.length === 0) {
 }
 
 function expandSourceFiles(sourceFiles) {
-  const patterns = sourceFiles.split('\n').filter(pattern => pattern.trim());
-  const allFiles = [];
+  const patterns = sourceFiles
+    .split('\n')
+    .map((p) => p.trim())
+    .filter((p) => p !== '');
+  const fileSet = new Set();
 
   for (const pattern of patterns) {
     try {
-      const matches = glob.sync(pattern.trim(), { nodir: true });
+      const matches = glob.sync(pattern, { nodir: true, absolute: true });
 
       if (matches.length === 0) {
-        core.warning(`Glob pattern "${pattern.trim()}" matched no files`);
+        core.warning(`Glob pattern "${pattern}" matched no files`);
       } else {
-        allFiles.push(...matches.map(file => ({ path: file })));
+        matches.forEach((file) => fileSet.add(file));
       }
     } catch (error) {
-      core.setFailed(`Invalid glob pattern "${pattern.trim()}": ${error.message}`);
+      core.setFailed(`Invalid glob pattern "${pattern}": ${error.message}`);
       process.exit(1);
     }
   }
 
-  if (allFiles.length === 0) {
+  if (fileSet.size === 0) {
     core.setFailed('No files matched any of the provided glob patterns');
     process.exit(1);
   }
 
-  return allFiles;
+  return Array.from(fileSet).map((file) => ({ path: file }));
 }
 
 function upload(params) {
