@@ -1,12 +1,14 @@
-const core = require('@actions/core');
-const S3 = require('aws-sdk/clients/s3');
-const fs = require('fs');
-const path = require('path');
-const shortid = require('shortid');
-const slash = require('slash').default;
-const klawSync = require('klaw-sync');
+//@ts-check
 const { lookup } = require('mime-types');
+const { randomBytes } = require('crypto');
+const { S3Client } = require('@aws-sdk/client-s3');
+const { Upload } = require('@aws-sdk/lib-storage');
+const core = require('@actions/core');
+const fs = require('fs');
 const glob = require('glob');
+const klawSync = require('klaw-sync');
+const path = require('path');
+const slash = require('slash').default;
 
 const AWS_KEY_ID = core.getInput('aws_key_id', {
   required: true,
@@ -33,26 +35,38 @@ const ENDPOINT = core.getInput('endpoint', {
   required: false,
 });
 
-const s3options = {
-  accessKeyId: AWS_KEY_ID,
-  secretAccessKey: SECRET_ACCESS_KEY,
+/**
+ * @type {import('@aws-sdk/client-s3').S3ClientConfig}
+ */
+const s3ClientConfig = {
+  credentials: {
+    accessKeyId: AWS_KEY_ID,
+    secretAccessKey: SECRET_ACCESS_KEY,
+  },
 };
 
 if (ENDPOINT) {
-  s3options.endpoint = ENDPOINT;
+  s3ClientConfig.endpoint = ENDPOINT;
+  s3ClientConfig.forcePathStyle = true;
 }
 
 if (REGION) {
-  s3options.region = REGION;
+  s3ClientConfig.region = REGION;
+} else {
+  s3ClientConfig.region = 'us-east-1';
 }
 
-const s3 = new S3(s3options);
-const destinationDir = DESTINATION_DIR === '/' ? shortid() : DESTINATION_DIR;
+const s3Client = new S3Client(s3ClientConfig);
+
+const destinationDir =
+  DESTINATION_DIR === '/'
+    ? randomBytes(6).toString('base64url')
+    : DESTINATION_DIR;
 
 const paths = SOURCE_DIR
   ? klawSync(SOURCE_DIR, {
-      nodir: true,
-    })
+    nodir: true,
+  })
   : SOURCE_FILES
     ? expandSourceFiles(SOURCE_FILES)
     : [];
@@ -62,6 +76,9 @@ if (paths.length === 0) {
   process.exit(1);
 }
 
+/**
+ * @param {string} sourceFiles
+ */
 function expandSourceFiles(sourceFiles) {
   const patterns = sourceFiles
     .split('\n')
@@ -78,7 +95,7 @@ function expandSourceFiles(sourceFiles) {
       } else {
         matches.forEach((file) => fileSet.add(file));
       }
-    } catch (error) {
+    } catch (/** @type {any} */ error) {
       core.setFailed(`Invalid glob pattern "${pattern}": ${error.message}`);
       process.exit(1);
     }
@@ -92,22 +109,38 @@ function expandSourceFiles(sourceFiles) {
   return Array.from(fileSet).map((file) => ({ path: file }));
 }
 
-function upload(params) {
-  return new Promise((resolve) => {
-    s3.upload(params, (err, data) => {
-      if (err) core.error(err);
-      core.info(`uploaded - ${data.Key}`);
-      core.info(`located - ${data.Location}`);
-      resolve(data.Location);
+/**
+ * @param {import('@aws-sdk/client-s3').PutObjectCommandInput} params
+ */
+async function upload(params) {
+  try {
+    const upload = new Upload({
+      client: s3Client,
+      params,
     });
-  });
+    const data = await upload.done();
+
+    const location = ENDPOINT
+      ? new URL(
+        `${params.Bucket}/${encodeURIComponent(data.Key)}`,
+        ENDPOINT,
+      ).toString()
+      : `https://${params.Bucket}.s3.${REGION || 'us-east-1'}.amazonaws.com/${encodeURIComponent(data.Key)}`;
+    core.info(`uploaded - ${data.Key}`);
+    core.info(`located - ${location}`);
+    return location;
+  } catch (/** @type {any} */ err) {
+    throw err;
+  }
 }
 
+/**
+ * @returns {Promise<string[]>} Array of uploaded file locations
+ */
 function run() {
   const sourceDir = slash(path.join(process.cwd(), SOURCE_DIR));
   return Promise.all(
     paths.map((p) => {
-      const fileStream = fs.createReadStream(p.path);
       const bucketPath = slash(
         path.join(
           destinationDir,
@@ -120,7 +153,7 @@ function run() {
       );
       const params = {
         Bucket: BUCKET,
-        Body: fileStream,
+        Body: fs.createReadStream(p.path),
         Key: bucketPath,
         ContentType: lookup(p.path) || 'text/plain',
       };
